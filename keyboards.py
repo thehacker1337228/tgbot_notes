@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 main = InlineKeyboardMarkup(inline_keyboard = [
     [InlineKeyboardButton(text="Каталог", callback_data="catalog")],
     [InlineKeyboardButton(text="Корзина", callback_data="basket"),
-     InlineKeyboardButton(text="Контакт",callback_data="contacts")]
+     InlineKeyboardButton(text="Контактi",callback_data="contacts")]
 ])
 
 
