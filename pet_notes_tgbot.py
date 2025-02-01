@@ -99,6 +99,7 @@ class TelegramBot:
         }
         self.logged_users[user.id] = user_data
         self.id = user.id
+        self.username = user.username
         await message.answer("Успешная авторизация!")
 
 
@@ -137,7 +138,7 @@ class TelegramBot:
             note = NoteDto(self.id, name, content)
             self.note_service.add_note(note)
             await message.answer("Заметка добавлена!")
-            await message.answer(f"Заголовок: {data['name']} \nКонтент: {data['content']}")
+            await message.answer(f"Заголовок: {data['name']} \nКонтент: {data['content']}", reply_markup=keyboard)
             await state.clear()
 
 
