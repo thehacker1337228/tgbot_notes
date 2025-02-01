@@ -67,12 +67,17 @@ VALUES(?, ?, ?, ?, ?, ?)
                 AND id = ?""", (user_id,))
         data = cursor.fetchall()
         connection.close()
-
         result = []
         for row in data:
             result.append(note_from_model(row))
-
         return result
+
+    def delete_func(self, note_id):
+        connection = sqlite3.connect(self.db_name)
+        cursor = connection.cursor()
+        cursor.execute('UPDATE Notes SET is_deleted = 1 WHERE note_id=?', (note_id,))
+        connection.commit()
+        connection.close()
 
 def note_from_model(row):
     return NoteDto(user_id=None, name=row[0], content=row[1], note_id=row[2])
@@ -99,6 +104,8 @@ class AddNote(StatesGroup): #конструктор добавления зам�
     name = State()
     content = State()
 
+class DelNote(StatesGroup): #конструктор удаления заметок
+    note_id = State()
 
 
 class TelegramBot:
@@ -127,6 +134,15 @@ class TelegramBot:
         self.username = user.username
         await message.answer("Успешная авторизация!")
 
+    async def show_all(self,user_id):
+        notes = self.note_service.get_all(user_id)
+        if not notes:
+            await message.answer("У вас нет заметок.")
+        else:
+            result = "=====[ Заметки ]=====\n"
+            for note in notes:
+                result += f"Заголовок: {note.name}\nКонтент:{note.content}\nID заметки: {note.note_id}\n\n"
+            return result
 
 
 
@@ -167,16 +183,26 @@ class TelegramBot:
             await state.clear()
 
         @self.dp.message(F.text == "Мои заметки")
-        async def show_all(message: Message):
-            user_id = message.from_user.id #мы это делаем потому, что если использовать self.id получается бага при многопользовательском режиме работы
-            notes = self.note_service.get_all(user_id)
-            if not notes:
-                await message.answer("У вас нет заметок.")
-            else:
-                result = "=====[ Заметки ]=====\n"
-                for note in notes:
-                    result += f"Заголовок: {note.name}\nКонтент:{note.content}\nID заметки: {note.note_id}\n\n"
-                await message.answer(result, reply_markup=keyboard)
+        async def show(message: Message):
+            await message.answer(await self.show_all(message.from_user.id), reply_markup=keyboard) # мы это делаем потому, что если использовать self.id получается баг
+
+        @self.dp.message(F.text == "Удалить заметку")
+        async def del_nts(message: Message, state: FSMContext):
+            await message.answer(await self.show_all(message.from_user.id))
+            await state.set_state(DelNote.note_id)
+            await message.answer("Введите ID заметки, которую хотите удалить")
+
+        @self.dp.message(DelNote.note_id)  # ловим что юзер вводит note_id
+        async def del_two(message: Message, state: FSMContext):
+            await state.update_data(note_id=message.text)  # сохраняем в кэше note_id
+            data = await state.get_data()
+            note_id = data["note_id"]
+            self.note_service.delete_func(note_id)
+            await message.answer("Заметка удалена!", reply_markup=keyboard)
+            await state.clear()
+
+
+
 
 
 
