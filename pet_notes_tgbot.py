@@ -47,15 +47,15 @@ CREATE TABLE IF NOT EXISTS Notes (
         connection.cursor().execute("""
 INSERT INTO Notes(id,username,title,content,note_id, created_at)
 VALUES(?, ?, ?, ?, ?, ?)
-        """, (note_dto.user_id, 'test', note_dto.name, note_dto.content, note_id, round(time.time())))
+        """, (note_dto.user_id, note_dto.username, note_dto.name, note_dto.content, note_id, round(time.time())))
         connection.commit()
         connection.close()
 
 
 
 class NoteDto:
-    def __init__(self, user_id, name, content, id=None):
-        self.id = id
+    def __init__(self, user_id, name, content, username=None):
+        self.username = username
         self.user_id = user_id
         self.name = name
         self.content = content
@@ -135,7 +135,7 @@ class TelegramBot:
             data = await state.get_data()  # достаём информацию и можно отправить в базу данных
             name = data["name"]
             content = data["content"]
-            note = NoteDto(self.id, name, content)
+            note = NoteDto(self.id, name, content,self.username)
             self.note_service.add_note(note)
             await message.answer("Заметка добавлена!")
             await message.answer(f"Заголовок: {data['name']} \nКонтент: {data['content']}", reply_markup=keyboard)
