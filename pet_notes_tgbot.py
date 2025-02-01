@@ -79,6 +79,23 @@ VALUES(?, ?, ?, ?, ?, ?)
         connection.commit()
         connection.close()
 
+    def get_note(self, note_id):
+        connection = sqlite3.connect(self.db_name)
+        cursor = connection.cursor()
+        cursor.execute('SELECT title, content, note_id from Notes WHERE note_id=?', (note_id,))
+        data = cursor.fetchall()
+        row = data[0]
+        note = note_from_model(row)
+        connection.close()
+        return note
+
+    def update(self, note):
+        connection = sqlite3.connect(self.db_name)
+        cursor = connection.cursor()
+        cursor.execute('UPDATE Notes set content = ?,updated_at =? WHERE note_id =?', note.to_model())
+        connection.commit()
+        connection.close()
+
 def note_from_model(row):
     return NoteDto(user_id=None, name=row[0], content=row[1], note_id=row[2])
 
@@ -92,7 +109,7 @@ class NoteDto:
 
     def to_model(self):
         updated_at = round(time.time())
-        return (self.content, updated_at, self.id)
+        return (self.content, updated_at, self.note_id)
 
     def to_content(self):
         return (self.content)
@@ -107,6 +124,9 @@ class AddNote(StatesGroup): #конструктор добавления зам�
 class DelNote(StatesGroup): #конструктор удаления заметок
     note_id = State()
 
+class EditNote(StatesGroup): #конструктор изменения заметок
+    note_id = State()
+    content = State()
 
 class TelegramBot:
 
@@ -202,10 +222,33 @@ class TelegramBot:
             await state.clear()
 
 
+        @self.dp.message(F.text == "Редактировать заметку")
+        async def edit_nts(message: Message, state: FSMContext):
+            await message.answer(await self.show_all(message.from_user.id))
+            await state.set_state(EditNote.note_id)
+            await message.answer("Введите ID заметки, которую хотите изменить:")
 
+        @self.dp.message(EditNote.note_id)  # ловим что юзер вводит note_id
+        async def edit_two(message: Message, state: FSMContext):
+            await state.update_data(note_id=message.text)  # сохраняем в кэше note_id
+            data = await state.get_data()
+            note_id = data["note_id"]
+            note = self.note_service.get_note(note_id) #получаем ноту по note_id
+            await message.answer(note.content)
+            await state.set_state(EditNote.content)  # след. шан input контента
+            await message.answer("Введите новый текст заметки:")
 
-
-
+        @self.dp.message(EditNote.content)  # ловим что юзер вводит новый контент
+        async def edittwo_three(message: Message, state: FSMContext):
+            await state.update_data(content=message.text)  # сохраняем в кэше
+            data = await state.get_data()  # достаём информацию и можно отправить в базу данных
+            content = data["content"]
+            note_id = data["note_id"]
+            note = self.note_service.get_note(note_id)  # получаем ноту по note_id
+            note.content = content
+            self.note_service.update(note)
+            await message.answer("Заметка изменена", reply_markup=keyboard)
+            await state.clear()
 
 
 
