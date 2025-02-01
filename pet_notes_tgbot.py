@@ -52,13 +52,38 @@ VALUES(?, ?, ?, ?, ?, ?)
         connection.close()
 
 
+    def get_all(self, user_id):
+        connection = sqlite3.connect(self.db_name)
+        cursor = connection.cursor()
+        cursor.execute("""
+            SELECT 
+                title, 
+                content,
+                note_id
+            FROM 
+                Notes 
+            WHERE 
+                (is_deleted IS NULL OR is_deleted = 0)
+                AND id = ?""", (user_id,))
+        data = cursor.fetchall()
+        connection.close()
+
+        result = []
+        for row in data:
+            result.append(note_from_model(row))
+
+        return result
+
+def note_from_model(row):
+    return NoteDto(user_id=None, name=row[0], content=row[1], note_id=row[2])
 
 class NoteDto:
-    def __init__(self, user_id, name, content, username=None):
+    def __init__(self, user_id, name, content, username=None, note_id=None):
         self.username = username
         self.user_id = user_id
         self.name = name
         self.content = content
+        self.note_id = note_id
 
     def to_model(self):
         updated_at = round(time.time())
@@ -140,6 +165,18 @@ class TelegramBot:
             await message.answer("Заметка добавлена!")
             await message.answer(f"Заголовок: {data['name']} \nКонтент: {data['content']}", reply_markup=keyboard)
             await state.clear()
+
+        @self.dp.message(F.text == "Мои заметки")
+        async def show_all(message: Message):
+            user_id = message.from_user.id #мы это делаем потому, что если использовать self.id получается бага при многопользовательском режиме работы
+            notes = self.note_service.get_all(user_id)
+            if not notes:
+                await message.answer("У вас нет заметок.")
+            else:
+                result = "=====[ Заметки ]=====\n"
+                for note in notes:
+                    result += f"Заголовок: {note.name}\nКонтент:{note.content}\nID заметки: {note.note_id}\n\n"
+                await message.answer(result, reply_markup=keyboard)
 
 
 
