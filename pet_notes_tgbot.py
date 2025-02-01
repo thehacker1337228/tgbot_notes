@@ -8,7 +8,9 @@ from aiogram.filters import CommandStart,Command
 from aiogram.types import FSInputFile
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
+import aiosqlite
 
+from pet_notes_config import TOKEN
 
 class NoteService:
     def __init__(self):
@@ -196,7 +198,7 @@ class TelegramBot:
             data = await state.get_data()  # достаём информацию и можно отправить в базу данных
             name = data["name"]
             content = data["content"]
-            note = NoteDto(self.id, name, content,self.username)
+            note = NoteDto(message.from_user.id, name, content,message.from_user.username)
             self.note_service.add_note(note)
             await message.answer("Заметка добавлена!")
             await message.answer(f"Заголовок: {data['name']} \nКонтент: {data['content']}", reply_markup=keyboard)
@@ -274,8 +276,11 @@ class TelegramBot:
 
 
 if __name__ == "__main__":
-    TOKEN = "7986753325:AAH4NqYDGe_GGt-srvUq4C_w9CofE2yah0k"
-    bot = TelegramBot(TOKEN)
-    asyncio.run(bot.run())
+    token = TOKEN
+    bot = TelegramBot(token)
+    try:
+        asyncio.run(bot.run())
+    except KeyboardInterrupt:
+        print("Выходим")
 
 
