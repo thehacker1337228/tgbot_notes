@@ -5,12 +5,12 @@ import json
 from enum import Enum
 
 class SessionState(Enum):
-    LOGIN = 1
-    MENU = 2
-    ADD_NOTE = 3
-    NOTES_LIST = 4
-    DEL_NOTE = 5
-    EDIT_NOTE = 6
+    LOGIN = "login"
+    MENU = "menu"
+    ADD_NOTE = "add_note"
+    NOTES_LIST = "notes_list"
+    DEL_NOTE = "del_note"
+    EDIT_NOTE = "edit_note"
 
 
 class UserService:
@@ -31,26 +31,15 @@ class UserService:
         connection.commit()
         connection.close()
 
-    def check(self, tg_id):
-        try: #try except потому что если база файл с базой не создан, то швыряет ошибку sql поле не найдено
-            connection = sqlite3.connect(self.db_name)
-            cursor = connection.cursor()
-            cursor.execute("""SELECT CASE 
-            WHEN COUNT(1) > 0 THEN True ELSE False 
-           END AS exists_state FROM Users WHERE tg_id = ?;""", (tg_id,))
-            result = cursor.fetchall()
-            connection.close()
-            return result[0][0]  # 1 -true, 0-false
-        except:
-            return 0
+# ЗДЕСЬ БЫЛ check
 
-    def add(self, user_dto):  # tg_id,username,created_at,state,json_data
+    def add(self, user):  # tg_id,username,created_at,state,json_data
         connection = sqlite3.connect(self.db_name)
         cursor = connection.cursor()
         cursor.execute("""INSERT INTO Users(
-        tg_id,username,created_at,state,json_data)
+        tg_id,username,state,json_data, created_at)
         VALUES(?, ?, ?, ?, ?)  
-        """, user_dto)
+        """, user.to_model()[:-1]) # срезаем user_id, спецом пихнули его в конец
         connection.commit()
         connection.close()
 
@@ -58,43 +47,43 @@ class UserService:
     def get(self,tg_id):
         connection = sqlite3.connect(self.db_name)
         cursor = connection.cursor()
-        cursor.execute("SELECT user_id FROM Users WHERE tg_id = ? LIMIT 1", (tg_id,))
+        cursor.execute("SELECT tg_id, username, state, json_data, created_at, user_id FROM Users WHERE tg_id = ? LIMIT 1", (tg_id,))
         result = cursor.fetchall()
         connection.close()
-        if self.check(tg_id)==1:
-            return result[0][0]
+        if result:
+            return UserDto.from_model(result[0])
         else:
-            user = UserDto(tg_id,'tg_username',round(time.time()))
-            user_object = user.user_dto()
-            self.add(user_object)
+            new_user = UserDto(tg_id, 'tg_username', state="start")
+            self.add(new_user)  # Метод add внутри UserService принимает объект UserDto
+            return self.get(tg_id)
 
-    def state(self,state_num,user_id):
-        state = SessionState(state_num).name
+
+    def update(self,user): # state + json
         connection = sqlite3.connect(self.db_name)
         cursor = connection.cursor()
-        cursor.execute("UPDATE Users SET state = ? WHERE user_id=?", (state,user_id))
+        cursor.execute("UPDATE Users SET tg_id = ?, username = ?, state = ?, json_data = ?, created_at = ? WHERE user_id=?", user.to_model())
         connection.commit()
         connection.close()
 
-    def user_json(self,step,item,user_id):
-        json_dict = {step:item}
-        json_string = json.dumps(json_dict)
-        connection = sqlite3.connect(self.db_name)
-        cursor = connection.cursor()
-        cursor.execute("UPDATE Users SET json_data = ? WHERE user_id=?", (json_string,user_id))
-        connection.commit()
-        connection.close()
 
 class UserDto:
-    def __init__(self, tg_id,username,created_at,state="start",json_data=None):
+    def __init__(self, tg_id,username,state="start",json_data=None, created_at = None, user_id = None):
         self.tg_id = tg_id
         self.username = username
+        if created_at == None:
+            created_at = round(time.time())
         self.created_at = created_at
         self.state = state
         self.json_data = json_data
+        self.user_id = user_id
 
-    def user_dto(self):
-        return (self.tg_id, self.username, self.created_at, self.state, self.json_data)
+
+    def to_model(self): #для работы с бд для запроса эскуль
+        return (self.tg_id, self.username, self.state, self.json_data, self.created_at, self.user_id)
+
+    @staticmethod
+    def from_model(row): #принимает то что из базы ряд и возвращает дтошку
+        return UserDto(row[0],row[1],row[2],row[3],row[4],row[5])
 
 
 class NoteService:
@@ -120,12 +109,11 @@ CREATE TABLE IF NOT EXISTS Notes (
 
         
     def add(self, note_dto):
-        #note_id = f"{note_dto.user_id}_{self.__get_max_id(note_dto.user_id)}"
         connection = sqlite3.connect(self.db_name)
         connection.cursor().execute("""
-INSERT INTO Notes(user_id,title,content, created_at)
-VALUES(?, ?, ?, ?)
-        """, (note_dto.user_id, note_dto.title, note_dto.content, round(time.time())))
+INSERT INTO Notes(user_id,title,content,created_at, updated_at)
+VALUES(?, ?, ?, ?, ?)
+        """, note_dto.to_model()[:-1])
         connection.commit()
         connection.close()
         
@@ -133,9 +121,12 @@ VALUES(?, ?, ?, ?)
         connection = sqlite3.connect(self.db_name)
         cursor = connection.cursor()
         cursor.execute("""
-            SELECT 
+            SELECT
+                user_id, 
                 title, 
                 content,
+                created_at,
+                updated_at,
                 note_id
             FROM 
                 Notes 
@@ -147,7 +138,7 @@ VALUES(?, ?, ?, ?)
                 
         result = []
         for row in data:
-            result.append(note_from_model(row))
+            result.append(NoteDto.from_model(row))
             
         return result
         
@@ -161,7 +152,7 @@ VALUES(?, ?, ?, ?)
     def update(self, note):
         connection = sqlite3.connect(self.db_name)
         cursor = connection.cursor()
-        cursor.execute('UPDATE Notes set content = ?,updated_at =? WHERE note_id =?', note.to_model())
+        cursor.execute('UPDATE Notes set user_id = ?, title = ?, content = ?, created_at = ?, updated_at =? WHERE note_id =?', note.to_model())
         connection.commit()
         connection.close()
 
@@ -169,35 +160,41 @@ VALUES(?, ?, ?, ?)
     def get_note(self, note_id):
         connection = sqlite3.connect(self.db_name)
         cursor = connection.cursor()
-        cursor.execute('SELECT title, content, note_id from Notes WHERE note_id=?', (note_id,))
+        cursor.execute('SELECT user_id, title, content, created_at, updated_at, note_id from Notes WHERE note_id=?', (note_id,))
         data = cursor.fetchall()
         row = data[0]
-        print(row)
-        note = note_from_model(row)
+        print(row[2])
+        note = NoteDto.from_model(row)
         connection.close()
         return note
 
 class NoteDto:
-    def __init__(self, user_id, title, content, note_id = None):
+    def __init__(self, user_id, title, content, created_at = None, updated_at = None, note_id = None):
         self.note_id = note_id
         self.user_id = user_id
         self.title = title
         self.content = content
+        if created_at == None:
+            created_at = round(time.time())
+        self.created_at = created_at
+        if updated_at == created_at:
+            updated_at = round(time.time())
+        self.updated_at = updated_at
         
-    def to_model(self):
-        updated_at = round(time.time())
-        return (self.content, updated_at, self.note_id)
+    def to_model(self): #для работы с бд для запроса эскуль
+        return (self.user_id, self.title, self.content, self.created_at, self.updated_at, self.note_id)
 
-    def to_content(self):
-        return (self.content)
+    @staticmethod
+    def from_model(row): #принимает шо высрала база
+        return NoteDto(row[0], row[1], row[2], row[3], row[4],row[5])
+
         
     def print(self):
         print(f"{self.note_id} ({self.title}): {self.content}")
 
         
-        
-def note_from_model(row):
-    return NoteDto(None, row[0], row[1], row[2])
+
+
 
 
     
@@ -206,13 +203,18 @@ class Menu:
         self.note_service = NoteService()
         self.user_service = UserService()
         
-        if (need_init):
+        if need_init:
             self.note_service.init_data()
             self.user_service.init() #инициализируем табличку с юзерами
             
         self.tg_id = self.login()
-        self.user_id = self.user_service.get(self.tg_id)
-        self.state = self.user_service.state(1, self.user_id)
+        self.user = self.user_service.get(self.tg_id) # dto object of User
+        self.user_id = UserDto.to_model(self.user)[-1]
+
+        state = SessionState.LOGIN.value
+        self.user.state = state
+        self.user_service.update(self.user)  # апдейтим стейт
+
         
     def login(self):
         while True:
@@ -226,11 +228,14 @@ class Menu:
 
 
 
-            
-            
+
     def start(self):
         while True:
-            self.user_service.state(2, self.user_id)
+            user = self.user_service.get(self.tg_id)  # раскатываем дто объект юзера обязательно заново
+            state = SessionState.MENU.value
+            user.state = state
+            self.user_service.update(user)  # апдейтим стейт
+
             print("Заметки\n1.Добавить\n2.Мои заметки\n3.Тыкалка\n4.Удалить заметки\n5.Редактировать заметки\n6.Выход")
             command = input("Plz write 1-3: ")
             if command == "1":
@@ -253,47 +258,92 @@ class Menu:
     def edit(self):
         print('Выберите заметку для редактирования: ')
         self.show_all()
-        self.user_service.state(6, self.user_id)
+
+        user = self.user_service.get(self.tg_id)  # раскатываем дто объект юзера обязательно заново
+        state = SessionState.EDIT_NOTE.value
+        user.state = state
+        self.user_service.update(user)  # апдейтим стейт
+
         index = input("Введи note_id заметки (первый столбец таблицы):")
-        self.user_service.user_json("edit_index", index, self.user_id)
+        json_data = json.dumps({"edit_index": index}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
+
         note = self.note_service.get_note(index)
+
         content = input("Редактирование заметки: ")
         note.content = content
-        self.user_service.user_json("edit_content", content, self.user_id)
+        json_data = json.dumps({"edit_content": content}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
         self.note_service.update(note)
         print("Заметка обновлена!")
-        self.user_service.user_json("edit_done", content, self.user_id)
+
+        json_data = json.dumps({"edit_done": content}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
         return
 
     def delete(self):
         print("Выбери заметку, которую хочешь удалить!")
         self.show_all()
-        self.user_service.state(5, self.user_id)
+
+        user = self.user_service.get(self.tg_id)  # раскатываем дто объект юзера обязательно заново
+        state = SessionState.DEL_NOTE.value
+        user.state = state
+        self.user_service.update(user)  # апдейтим стейт
+
         index = input("Введи note_id заметки (первый столбец таблицы):")
-        self.user_service.user_json("del_index", index, self.user_id)
+        json_data = json.dumps({"del_index": index}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
+
         question = input("Вы действительно хотите удалить заметку?")
         self.note_service.delete_func(index)
-        self.user_service.user_json("del_done", index, self.user_id)
+        json_data = json.dumps({"del_done": index}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
+
         print("Заметка удалена")
         return
 
 
                 
     def add(self):
-        self.user_service.state(3, self.user_id)
+
+        user = self.user_service.get(self.tg_id) #раскатываем дто объект юзера обязательно заново
+        state = SessionState.ADD_NOTE.value
+        user.state = state
+        self.user_service.update(user) #апдейтим стейт
+
         title = input("Введите название заметки\n")
-        self.user_service.user_json("add_title",title,self.user_id)
+        json_data = json.dumps({"add_title":title}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user) #апдейтим json
+
         content = input("Введите текст\n")
-        self.user_service.user_json("add_content",content,self.user_id)
+        json_data = json.dumps({"add_content": content}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
+
         note = NoteDto(self.user_id, title, content)
         self.note_service.add(note)
+        #print(note.user_id)
         print("Заметка создана")
-        self.user_service.user_json("add_done", content, self.user_id)
+
+        json_data = json.dumps({"add_done": content}, ensure_ascii=False)
+        user.json_data = json_data
+        self.user_service.update(user)  # апдейтим json
         return
         
     def show_all(self):
         notes = self.note_service.get_all(self.user_id)
-        self.user_service.state(4, self.user_id)
+
+        user = self.user_service.get(self.tg_id)  # раскатываем дто объект юзера обязательно заново
+        state = SessionState.NOTES_LIST.value
+        user.state = state
+        self.user_service.update(user)  # апдейтим стейт
+
         print("=====[ Заметки ]=====")
         for note in notes:
             note.print()
