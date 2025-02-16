@@ -179,6 +179,8 @@ class NoteDto:
         self.created_at = created_at
         if updated_at == created_at:
             updated_at = round(time.time())
+        if updated_at != created_at:
+            updated_at = round(time.time())
         self.updated_at = updated_at
         
     def to_model(self): #для работы с бд для запроса эскуль
